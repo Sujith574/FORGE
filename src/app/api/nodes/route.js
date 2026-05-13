@@ -4,29 +4,25 @@
  */
 import { NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/getAuthUser';
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import { connectDB } from '@/lib/mongodb/connect';
+import { BrainNode } from '@/lib/mongodb/models/BrainNode';
 
 export async function GET(request) {
-  const { user, error } = await getAuthUser(request);
+  const { userId, error } = getAuthUser(request);
   if (error) return error;
 
-  const { data, error: dbError } = await supabaseAdmin
-    .from('brain_nodes')
-    .select('*')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true });
+  await connectDB();
 
-  if (dbError) {
-    console.error('Failed to fetch nodes:', dbError);
-    return NextResponse.json({ error: 'Failed to fetch nodes' }, { status: 500 });
-  }
+  const nodes = await BrainNode.find({ user_id: userId }).sort({ created_at: 1 });
 
-  return NextResponse.json({ nodes: data }, { status: 200 });
+  return NextResponse.json({ nodes }, { status: 200 });
 }
 
 export async function POST(request) {
-  const { user, error } = await getAuthUser(request);
+  const { userId, error } = getAuthUser(request);
   if (error) return error;
+
+  await connectDB();
 
   let body;
   try {
@@ -41,24 +37,15 @@ export async function POST(request) {
     return NextResponse.json({ error: 'label is required' }, { status: 400 });
   }
 
-  const { data, error: dbError } = await supabaseAdmin
-    .from('brain_nodes')
-    .insert({
-      user_id: user.id,
-      label: label.trim(),
-      x: x ?? 400,
-      y: y ?? 300,
-      status,
-      is_core: false,
-      connections: [],
-    })
-    .select()
-    .single();
+  const node = await BrainNode.create({
+    user_id: userId,
+    label: label.trim(),
+    x: x ?? 400,
+    y: y ?? 300,
+    status,
+    is_core: false,
+    connections: [],
+  });
 
-  if (dbError) {
-    console.error('Failed to create node:', dbError);
-    return NextResponse.json({ error: 'Failed to create node' }, { status: 500 });
-  }
-
-  return NextResponse.json({ node: data }, { status: 201 });
+  return NextResponse.json({ node }, { status: 201 });
 }

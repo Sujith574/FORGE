@@ -9,8 +9,10 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.0.0",
+    "bcryptjs": "^3.0.3",
     "groq-sdk": "^1.2.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.6.2",
     "next": "^15.0.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0"

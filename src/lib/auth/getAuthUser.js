@@ -1,50 +1,42 @@
 /**
- * Auth helper — verifies the JWT from the Authorization header.
- * Use this at the top of every API route to get the current user.
+ * JWT Auth Middleware
+ * Verifies the Bearer token from the Authorization header.
+ * Uses jsonwebtoken — no Supabase involved.
  *
- * Returns { user, error }
- * - user: Supabase auth user object (has user.id)
- * - error: NextResponse with 401 if token missing/invalid
+ * Returns { userId, error }
+ * - userId: MongoDB ObjectId string of the logged-in founder
+ * - error: NextResponse 401 if token is missing/invalid
  *
- * Usage:
- *   const { user, error } = await getAuthUser(request);
+ * Usage in any route:
+ *   const { userId, error } = getAuthUser(request);
  *   if (error) return error;
  */
-import { createClient } from '@supabase/supabase-js';
+import jwt from 'jsonwebtoken';
 import { NextResponse } from 'next/server';
 
-export async function getAuthUser(request) {
+export function getAuthUser(request) {
+  const JWT_SECRET = process.env.JWT_SECRET;
+  if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET is missing');
+  }
   const authHeader = request.headers.get('Authorization');
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return {
-      user: null,
+      userId: null,
       error: NextResponse.json({ error: 'Unauthorized — missing token' }, { status: 401 }),
     };
   }
 
-  const token = authHeader.replace('Bearer ', '');
+  const token = authHeader.replace('Bearer ', '').trim();
 
-  // Create a per-request client with the user's JWT so Supabase validates it
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
-  });
-
-  const { data: { user }, error } = await supabaseClient.auth.getUser(token);
-
-  if (error || !user) {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return { userId: decoded.userId, error: null };
+  } catch (err) {
     return {
-      user: null,
-      error: NextResponse.json({ error: 'Unauthorized — invalid token' }, { status: 401 }),
+      userId: null,
+      error: NextResponse.json({ error: 'Unauthorized — invalid or expired token' }, { status: 401 }),
     };
   }
-
-  return { user, error: null };
 }

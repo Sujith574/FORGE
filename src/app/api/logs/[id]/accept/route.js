@@ -1,55 +1,43 @@
 /**
  * PATCH /api/logs/[id]/accept
- * Founder accepts a Decision Log.
- * Sets status to 'accepted'. Appends to history.
  */
 import { NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/getAuthUser';
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import { connectDB } from '@/lib/mongodb/connect';
+import { DecisionLog } from '@/lib/mongodb/models/DecisionLog';
 
 export async function PATCH(request, { params }) {
-  const { user, error } = await getAuthUser(request);
+  const { userId, error } = getAuthUser(request);
   if (error) return error;
+
+  await connectDB();
 
   const { id } = params;
 
-  // Fetch existing log to verify ownership and get history
-  const { data: log } = await supabaseAdmin
-    .from('decision_logs')
-    .select('id, status, version, history, user_id')
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .single();
+  const log = await DecisionLog.findOne({ _id: id, user_id: userId });
 
   if (!log) {
-    return NextResponse.json({ error: 'Decision Log not found' }, { status: 404 });
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
   if (log.status === 'accepted') {
-    return NextResponse.json({ error: 'Log is already accepted' }, { status: 400 });
+    return NextResponse.json({ error: 'Already accepted' }, { status: 400 });
   }
 
-  const newHistoryEntry = {
-    action: 'accepted',
-    timestamp: new Date().toISOString(),
-    version: log.version,
-  };
-
-  const { data: updated, error: updateError } = await supabaseAdmin
-    .from('decision_logs')
-    .update({
-      status: 'accepted',
-      history: [...(log.history || []), newHistoryEntry],
-    })
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .select()
-    .single();
-
-  if (updateError) {
-    console.error('Failed to accept log:', updateError);
-    return NextResponse.json({ error: 'Failed to accept Decision Log' }, { status: 500 });
-  }
+  const updated = await DecisionLog.findByIdAndUpdate(
+    id,
+    {
+      $set: { status: 'accepted' },
+      $push: {
+        history: {
+          action: 'accepted',
+          timestamp: new Date().toISOString(),
+          version: log.version,
+        }
+      }
+    },
+    { new: true }
+  );
 
   return NextResponse.json({ log: updated }, { status: 200 });
 }

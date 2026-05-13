@@ -1,16 +1,16 @@
 /**
  * POST /api/users/onboard
- * Called after signup. Saves name + company, creates default nodes,
- * and triggers starter Decision Log generation.
- *
- * Body: { name: string, company_name: string, company_description?: string }
+ * Creates default nodes and triggers starter Decision Log generation.
+ * (User profile is already created during signup in MongoDB version)
  */
 import { NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/getAuthUser';
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import { connectDB } from '@/lib/mongodb/connect';
+import { BrainNode } from '@/lib/mongodb/models/BrainNode';
+import { DecisionLog } from '@/lib/mongodb/models/DecisionLog';
+import { User } from '@/lib/mongodb/models/User';
 import { generateStarterLogs } from '@/lib/claude/claudeService';
 
-// The 5 default Brain Map nodes every new company gets
 const DEFAULT_NODES = [
   { label: 'Company', x: 500, y: 350, status: 'in-progress', is_core: true },
   { label: 'Market',  x: 750, y: 200, status: 'unknown', is_core: false },
@@ -20,64 +20,42 @@ const DEFAULT_NODES = [
 ];
 
 export async function POST(request) {
-  const { user, error } = await getAuthUser(request);
+  const { userId, error } = getAuthUser(request);
   if (error) return error;
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  await connectDB();
+
+  const user = await User.findById(userId);
+  if (!user) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 });
   }
 
-  const { name, company_name, company_description } = body;
-
-  if (!name || !company_name) {
-    return NextResponse.json({ error: 'name and company_name are required' }, { status: 400 });
+  // Check if already onboarded
+  const existingNodes = await BrainNode.countDocuments({ user_id: userId });
+  if (existingNodes > 0) {
+    return NextResponse.json({ error: 'Already onboarded' }, { status: 400 });
   }
 
-  // 1. Create user row
-  const { error: userError } = await supabaseAdmin.from('users').upsert({
-    id: user.id,
-    name: name.trim(),
-    company_name: company_name.trim(),
-    email: user.email,
-  });
-
-  if (userError) {
-    console.error('Failed to create user row:', userError);
-    return NextResponse.json({ error: 'Failed to create user profile' }, { status: 500 });
-  }
-
-  // 2. Create default Brain Map nodes
+  // 1. Create default Brain Map nodes
   const nodesToInsert = DEFAULT_NODES.map((node) => ({
     ...node,
-    user_id: user.id,
+    user_id: userId,
     connections: [],
   }));
 
-  const { data: createdNodes, error: nodesError } = await supabaseAdmin
-    .from('brain_nodes')
-    .insert(nodesToInsert)
-    .select();
+  const createdNodes = await BrainNode.insertMany(nodesToInsert);
 
-  if (nodesError) {
-    console.error('Failed to create default nodes:', nodesError);
-    // Don't fail onboarding for this — user can add nodes manually
-  }
-
-  // 3. Generate 2 starter Decision Logs (async — don't block response)
-  // We do this in background so onboarding feels instant
+  // 2. Generate starter logs in background
   (async () => {
     try {
       const starterLogs = await generateStarterLogs(
-        company_name,
-        company_description || 'A new startup'
+        user.company_name,
+        'A new startup'
       );
 
       for (const { employeeId, logContent } of starterLogs) {
-        await supabaseAdmin.from('decision_logs').insert({
-          user_id: user.id,
+        await DecisionLog.create({
+          user_id: userId,
           employee_id: employeeId,
           status: 'pending',
           version: 1,
@@ -100,6 +78,6 @@ export async function POST(request) {
   return NextResponse.json({
     success: true,
     message: 'Onboarding complete',
-    nodes: createdNodes || [],
+    nodes: createdNodes,
   }, { status: 201 });
 }

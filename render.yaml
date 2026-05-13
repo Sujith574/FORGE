@@ -1,12 +1,12 @@
-# Render deployment configuration for FORGE
+# Render deployment configuration for FORGE (MongoDB)
 # Docs: https://render.com/docs/blueprint-spec
 
 services:
   - type: web
     name: forge
     runtime: node
-    region: singapore   # Change to: oregon, frankfurt, ohio, virginia as needed
-    plan: free           # Change to: starter, standard, etc. for production
+    region: singapore
+    plan: free
     buildCommand: npm install && npm run build
     startCommand: npm start
     healthCheckPath: /api/users/me
@@ -14,10 +14,8 @@ services:
       - key: NODE_ENV
         value: production
       - key: GROQ_API_KEY
-        sync: false        # Set manually in Render dashboard
-      - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
-      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+      - key: MONGODB_URI
         sync: false
-      - key: SUPABASE_SERVICE_KEY
+      - key: JWT_SECRET
         sync: false
